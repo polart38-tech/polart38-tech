@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>The Lucky Looter</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #111;
+      color: #f5f5f5;
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    #ui {
+      width: 800px;
+      max-width: 100%;
+      padding: 8px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+    }
+
+    #ui-left, #ui-right {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .stat-label {
+      opacity: 0.8;
+    }
+
+    .stat-value {
+      font-weight: bold;
+      color: #ffd54f;
+    }
+
+    #message {
+      width: 800px;
+      max-width: 100%;
+      text-align: center;
+      font-size: 14px;
+      margin-bottom: 4px;
+      min-height: 18px;
+      color: #90caf9;
+    }
+
+    #game-container {
+      position: relative;
+      width: 800px;
+      height: 500px;
+      max-width: 100%;
+      background: #1b1b1b;
+      border: 2px solid #333;
+      overflow: hidden;
+    }
+
+    #gameCanvas {
+      background: #263238;
+      display: block;
+    }
+
+    #controls {
+      width: 800px;
+      max-width: 100%;
+      font-size: 12px;
+      text-align: center;
+      margin-top: 6px;
+      color: #b0bec5;
+    }
+
+    #shop {
+      width: 800px;
+      max-width: 100%;
+      margin-top: 8px;
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .shop-btn {
+      background: #37474f;
+      border: 1px solid #546e7a;
+      color: #eceff1;
+      padding: 4px 8px;
+      font-size: 12px;
+      cursor: pointer;
+      border-radius: 3px;
+    }
+
+    .shop-btn:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+
+    .shop-btn:hover:not(:disabled) {
+      background: #455a64;
+    }
+
+    #title {
+      margin-top: 6px;
+      font-size: 18px;
+      font-weight: bold;
+      letter-spacing: 1px;
+    }
+  </style>
+</head>
+<body>
+  <div id="title">THE LUCKY LOOTER</div>
+  <div id="message"></div>
+  <div id="ui">
+    <div id="ui-left">
+      <span class="stat-label">Cash:</span><span id="cash" class="stat-value">$0</span>
+      <span class="stat-label">Banked:</span><span id="banked" class="stat-value">$0</span>
+      <span class="stat-label">Wanted:</span><span id="wanted" class="stat-value">0</span>
+      <span class="stat-label">Heat:</span><span id="heat" class="stat-value">0%</span>
+    </div>
+    <div id="ui-right">
+      <span class="stat-label">Speed Lv:</span><span id="speedLv" class="stat-value">1</span>
+      <span class="stat-label">Luck Lv:</span><span id="luckLv" class="stat-value">1</span>
+      <span class="stat-label">Bag Lv:</span><span id="bagLv" class="stat-value">1</span>
+    </div>
+  </div>
+
+  <div id="game-container">
+    <canvas id="gameCanvas" width="800" height="500"></canvas>
+  </div>
+
+  <div id="controls">
+    <b>Controls:</b> WASD / Arrow Keys to move Â· <b>E</b> to loot (houses/people) Â·
+    Stand in the green zone to <b>bank</b> your cash and drop heat.
+  </div>
+
+  <div id="shop">
+    <button id="buySpeed" class="shop-btn">Upgrade Speed ($150)</button>
+    <button id="buyLuck" class="shop-btn">Upgrade Luck ($200)</button>
+    <button id="buyBag" class="shop-btn">Upgrade Bag ($250)</button>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const cashEl = document.getElementById('cash');
+    const bankedEl = document.getElementById('banked');
+    const wantedEl = document.getElementById('wanted');
+    const heatEl = document.getElementById('heat');
+    const speedLvEl = document.getElementById('speedLv');
+    const luckLvEl = document.getElementById('luckLv');
+    const bagLvEl = document.getElementById('bagLv');
+    const messageEl = document.getElementById('message');
+
+    const buySpeedBtn = document.getElementById('buySpeed');
+    const buyLuckBtn = document.getElementById('buyLuck');
+    const buyBagBtn = document.getElementById('buyBag');
+
+    const keys = {};
+    window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+    window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+    const world = {
+      width: 800,
+      height: 500
+    };
+
+    const player = {
+      x: 380,
+      y: 240,
+      w: 20,
+      h: 20,
+      baseSpeed: 2.0,
+      speedLevel: 1,
+      luckLevel: 1,
+      bagLevel: 1,
+      vx: 0,
+      vy: 0,
+      color: '#ffeb3b',
+      cash: 0,
+      banked: 0,
+      bagCapacityBase: 200,
+      get speed() {
+        return this.baseSpeed + (this.speedLevel - 1) * 0.6;
+      },
+      get bagCapacity() {
+        return this.bagCapacityBase + (this.bagLevel - 1) * 150;
+      }
+    };
+
+    const getawayZone = {
+      x: 20,
+      y: world.height - 80,
+      w: 80,
+      h: 60,
+      color: '#2e7d32'
+    };
+
+    let houses = [];
+    let npcs = [];
+    let cops = [];
+
+    let wantedLevel = 0;
+    let heat = 0; // 0â100
+    let lastLootTime = 0;
+    let lootCooldown = 400; // ms
+    let lastMessageTime = 0;
+
+    function showMessage(text, duration = 1500) {
+      messageEl.textContent = text;
+      lastMessageTime = performance.now() + duration;
+    }
+
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.w &&
+             a.x + a.w > b.x &&
+             a.y < b.y + b.h &&
+             a.y + a.h > b.y;
+    }
+
+    function randomRange(min, max) {
+      return Math.random() * (max - min) + min;
+    }
+
+    function createWorld() {
+      houses = [];
+      npcs = [];
+      cops = [];
+
+      // Create houses
+      for (let i = 0; i < 8; i++) {
+        const w = 60;
+        const h = 40;
+        const margin = 40;
+        const x = margin + i * ((world.width - margin * 2) / 8) + randomRange(-10, 10);
+        const y = randomRange(60, world.height - 160);
+        houses.push({
+          x, y, w, h,
+          color: '#5d4037',
+          doorX: x + w / 2 - 6,
+          doorY: y + h - 10,
+          doorW: 12,
+          doorH: 10,
+          robbedRecently: false,
+          cooldown: 0
+        });
+      }
+
+      // Create NPCs
+      for (let i = 0; i < 10; i++) {
+        npcs.push({
+          x: randomRange(120, world.width - 40),
+          y: randomRange(40, world.height - 40),
+          w: 12,
+          h: 18,
+          color: '#90caf9',
+          dirX: Math.random() < 0.5 ? -1 : 1,
+          dirY: Math.random() < 0.5 ? -1 : 1,
+          speed: randomRange(0.4, 0.9),
+          robbedRecently: false,
+          cooldown: 0
+        });
+      }
+    }
+
+    function spawnCop() {
+      const side = Math.random() < 0.5 ? 'left' : 'right';
+      const x = side === 'left' ? -30 : world.width + 10;
+      const y = randomRange(40, world.height - 40);
+      cops.push({
+        x,
+        y,
+        w: 20,
+        h: 20,
+        color: '#ef5350',
+        speed: 1.6 + wantedLevel * 0.2
+      });
+    }
+
+    function updateNPCs(dt) {
+      for (const npc of npcs) {
+        npc.x += npc.dirX * npc.speed * dt * 0.06;
+        npc.y += npc.dirY * npc.speed * dt * 0.06;
+
+        if (npc.x < 100 || npc.x + npc.w > world.width - 20) npc.dirX *= -1;
+        if (npc.y < 20 || npc.y + npc.h > world.height - 20) npc.dirY *= -1;
+
+        if (npc.cooldown > 0) {
+          npc.cooldown -= dt;
+          if (npc.cooldown <= 0) {
+            npc.robbedRecently = false;
+          }
+        }
+      }
+    }
+
+    function updateHouses(dt) {
+      for (const house of houses) {
+        if (house.cooldown > 0) {
+          house.cooldown -= dt;
+          if (house.cooldown <= 0) {
+            house.robbedRecently = false;
+          }
+        }
+      }
+    }
+
+    function updateCops(dt) {
+      for (const cop of cops) {
+        const dx = player.x - cop.x;
+        const dy = player.y - cop.y;
+        const len = Math.hypot(dx, dy) || 1;
+        cop.x += (dx / len) * cop.speed * dt * 0.06;
+        cop.y += (dy / len) * cop.speed * dt * 0.06;
+
+        if (rectsOverlap(cop, player)) {
+          // Caught
+          const lost = Math.floor(player.cash * 0.7);
+          player.cash -= lost;
+          wantedLevel = Math.max(0, wantedLevel - 1);
+          heat = Math.max(0, heat - 30);
+          cops = [];
+          showMessage(`Busted! You lost $${lost}.`);
+        }
+      }
+
+      // Occasionally spawn cops based on heat/wanted
+      if (wantedLevel > 0 && Math.random() < 0.0015 * wantedLevel) {
+        spawnCop();
+      }
+    }
+
+    function tryLoot() {
+      const now = performance.now();
+      if (now - lastLootTime < lootCooldown) return;
+      lastLootTime = now;
+
+      // Bag full?
+      if (player.cash >= player.bagCapacity) {
+        showMessage("Your bag is full. Hit the getaway zone to bank it.");
+        return;
+      }
+
+      let looted = false;
+
+      // Loot house if near door
+      for (const house of houses) {
+        const doorRect = {
+          x: house.doorX,
+          y: house.doorY,
+          w: house.doorW,
+          h: house.doorH
+        };
+        if (!house.robbedRecently && rectsOverlap(player, doorRect)) {
+          const baseMin = 60;
+          const baseMax = 140;
+          const luckBonus = player.luckLevel * 20;
+          let amount = Math.floor(randomRange(baseMin, baseMax + luckBonus));
+          const spaceLeft = player.bagCapacity - player.cash;
+          amount = Math.min(amount, spaceLeft);
+          if (amount <= 0) {
+            showMessage("Your bag can't hold any more.");
+            return;
+          }
+          player.cash += amount;
+          wantedLevel += 1;
+          heat = Math.min(100, heat + 12);
+          house.robbedRecently = true;
+          house.cooldown = 8000;
+          showMessage(`House hit! +$${amount}`);
+          looted = true;
+          break;
+        }
+      }
+
+      if (looted) return;
+
+      // Loot NPC if touching
+      for (const npc of npcs) {
+        if (!npc.robbedRecently && rectsOverlap(player, npc)) {
+          const baseMin = 20;
+          const baseMax = 70;
+          const luckBonus = player.luckLevel * 10;
+          let amount = Math.floor(randomRange(baseMin, baseMax + luckBonus));
+          const spaceLeft = player.bagCapacity - player.cash;
+          amount = Math.min(amount, spaceLeft);
+          if (amount <= 0) {
+            showMessage("Your bag can't hold any more.");
+            return;
+          }
+          player.cash += amount;
+          wantedLevel += 0.5;
+          heat = Math.min(100, heat + 6);
+          npc.robbedRecently = true;
+          npc.cooldown = 5000;
+          showMessage(`You picked a pocket! +$${amount}`);
+          looted = true;
+          break;
+        }
+      }
+
+      if (!looted) {
+        showMessage("Nothing to loot here.");
+      }
+    }
+
+    function updatePlayer(dt) {
+      let vx = 0, vy = 0;
+      if (keys['w'] || keys['arrowup']) vy -= 1;
+      if (keys['s'] || keys['arrowdown']) vy += 1;
+      if (keys['a'] || keys['arrowleft']) vx -= 1;
+      if (keys['d'] || keys['arrowright']) vx += 1;
+
+      const len = Math.hypot(vx, vy) || 1;
+      vx /= len;
+      vy /= len;
+
+      player.x += vx * player.speed * dt * 0.06;
+      player.y += vy * player.speed * dt * 0.06;
+
+      // Clamp
+      player.x = Math.max(0, Math.min(world.width - player.w, player.x));
+      player.y = Math.max(0, Math.min(world.height - player.h, player.y));
+
+      // Loot key
+      if (keys['e']) {
+        tryLoot();
+        keys['e'] = false; // avoid spam
+      }
+
+      // Getaway zone banking
+      if (rectsOverlap(player, getawayZone)) {
+        if (player.cash > 0) {
+          player.banked += player.cash;
+          showMessage(`Banked $${player.cash}. Heat dropping.`);
+          player.cash = 0;
+          heat = Math.max(0, heat - 25);
+          wantedLevel = Math.max(0, wantedLevel - 0.5);
+        }
+      }
+    }
+
+    function updateHeat(dt) {
+      if (heat > 0) {
+        heat -= dt * 0.003;
+        if (heat < 0) heat = 0;
+      }
+    }
+
+    function drawWorld() {
+      // Background
+      ctx.fillStyle = '#263238';
+      ctx.fillRect(0, 0, world.width, world.height);
+
+      // Roads
+      ctx.fillStyle = '#37474f';
+      ctx.fillRect(0, 220, world.width, 60);
+      ctx.fillRect(180, 0, 60, world.height);
+
+      // Getaway zone
+      ctx.fillStyle = getawayZone.color;
+      ctx.fillRect(getawayZone.x, getawayZone.y, getawayZone.w, getawayZone.h);
+      ctx.fillStyle = '#c8e6c9';
+      ctx.font = '10px Arial';
+      ctx.fillText('GETAWAY', getawayZone.x + 8, getawayZone.y + 22);
+      ctx.fillText('ZONE', getawayZone.x + 18, getawayZone.y + 36);
+
+      // Houses
+      for (const house of houses) {
+        ctx.fillStyle = house.color;
+        ctx.fillRect(house.x, house.y, house.w, house.h);
+        ctx.fillStyle = '#8d6e63';
+        ctx.fillRect(house.doorX, house.doorY, house.doorW, house.doorH);
+        if (house.robbedRecently) {
+          ctx.strokeStyle = '#ffab91';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(house.x, house.y, house.w, house.h);
+        }
+      }
+
+      // NPCs
+      for (const npc of npcs) {
+        ctx.fillStyle = npc.robbedRecently ? '#546e7a' : npc.color;
+        ctx.fillRect(npc.x, npc.y, npc.w, npc.h);
+      }
+
+      // Cops
+      for (const cop of cops) {
+        ctx.fillStyle = cop.color;
+        ctx.fillRect(cop.x, cop.y, cop.w, cop.h);
+        ctx.fillStyle = '#fff';
+        ctx.font = '8px Arial';
+        ctx.fillText('COP', cop.x + 2, cop.y + 13);
+      }
+
+      // Player
+      ctx.fillStyle = player.color;
+      ctx.fillRect(player.x, player.y, player.w, player.h);
+    }
